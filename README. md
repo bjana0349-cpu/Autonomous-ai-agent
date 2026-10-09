@@ -1,0 +1,9 @@
+# Jarvis Android Voice Assistant
+
+Android voice assistant connected to my existing Autonomous AI Agent.
+
+Features:
+- Voice commands
+- Bengali, Hindi and English support
+- Android foreground microphone service
+- Existing AI agent backend integration
