@@ -1,1 +1,66 @@
+name: Android Jarvis Debug APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show repository files
+        run: |
+          echo "Checking repository contents"
+          ls -la
+          find . -maxdepth 3 -type f | head -200
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses
+
+      - name: Find Gradle project
+        id: gradle
+        run: |
+          if [ -f "./gradlew" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f "./android/gradlew" ]; then
+            echo "dir=android" >> "$GITHUB_OUTPUT"
+          else
+            echo "No gradlew found in root or android directory."
+            find . -maxdepth 4 -name gradlew -type f
+            exit 1
+          fi
+
+      - name: Build debug APK
+        working-directory: ${{ steps.gradle.outputs.dir }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-debug-apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
