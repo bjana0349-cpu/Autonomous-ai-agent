@@ -1,5 +1,4 @@
 
-
 name: Android Jarvis Debug APK
 
 on:
@@ -13,34 +12,62 @@ permissions:
 
 jobs:
   build-debug:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate Android SDK
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Locate and extract Android project
         shell: bash
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          set -e
+          if [ ! -f "autonomous-ai-agent-final.zip" ]; then
+            echo "ERROR: Project ZIP not found"
+            exit 1
+          fi
+
+          mkdir -p unpacked-project
+          unzip -oq autonomous-ai-agent-final.zip -d unpacked-project
+
+          PROJECT_DIR="unpacked-project/autonomous-ai-agent/android-jarvis"
+
+          if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
+            echo "ERROR: Android project settings file not found"
+            exit 1
+          fi
+
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Android app module not found"
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project located successfully"
 
       - name: Accept Android SDK licenses
         shell: bash
         run: |
           SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+
           if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager was not found"
+            echo "ERROR: Android SDK manager not found"
             exit 1
           fi
+
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses || true
 
       - name: Install Android SDK packages
@@ -48,48 +75,21 @@ jobs:
         run: |
           SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Find Android Gradle project
-        id: gradle
-        shell: bash
-        run: |
-          set -e
-          GRADLEW="$(find . -type f -name gradlew -not -path './.git/*' | head -n 1 || true)"
-
-          if [ -z "$GRADLEW" ] && [ -f "autonomous-ai-agent-final.zip" ]; then
-            mkdir -p unpacked-project
-            unzip -oq autonomous-ai-agent-final.zip -d unpacked-project
-            GRADLEW="$(find unpacked-project -type f -name gradlew | head -n 1 || true)"
-          fi
-
-          if [ -z "$GRADLEW" ]; then
-            echo "ERROR: No gradlew found in repository or ZIP."
-            echo "The ZIP may not contain a complete Android Gradle project."
-            find . -maxdepth 4 -type f | head -n 200
-            exit 1
-          fi
-
-          PROJECT_DIR="$(dirname "$GRADLEW")"
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found Gradle wrapper: $GRADLEW"
-
       - name: Build debug APK
-        working-directory: ${{ steps.gradle.outputs.dir }}
+        working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Upload APK and build logs
-        if: always()
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: jarvis-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
-            **/build/reports/**
-          if-no-files-found: warn
+          path: unpacked-project/autonomous-ai-agent/android-jarvis/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
